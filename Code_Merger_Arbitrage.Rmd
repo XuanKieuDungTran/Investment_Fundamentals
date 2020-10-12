@@ -148,15 +148,18 @@ df_summary <- df_returns %>%
             total_cagr_target = gm_mean(R_d_target))
 
 
-
-
-
-
-
-
 glimpse(stock_data) # examine the structure of the resulting data frame
 
 ```
+
+```{r plot returns}
+
+df_returns %>% 
+  ggplot() +
+  geom_line(aes(x = standard_date, y = close_acquirer, group = acquirer, colour = acquirer))
+
+```
+
 
 ```{r standardised format}
 datalist = list() 
@@ -216,10 +219,5 @@ for (i in test) {
 
 glimpse(merge)
 ```
-```{r calculate returns}
 
-stock_data2 <- stock_data %>% 
-  mutate(return)
-
-```
 
