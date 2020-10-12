@@ -1,0 +1,147 @@
+---
+title: "Merger Arbitrage"
+author: "LB"
+date: "10/7/2020"
+output: html_document
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = FALSE, 
+  warning = FALSE, 
+  tidy=FALSE,     # display code as typed
+  size="small")   # slightly smaller font for code
+options(digits = 3)
+
+# default figure size
+knitr::opts_chunk$set(
+  fig.width=6.75, 
+  fig.height=6.75,
+  fig.align = "center"
+)
+```
+
+
+```{r load-libraries, include=FALSE}
+library(tidyverse)  # Load ggplot2, dplyr, and all the other tidyverse packages
+library(mosaic)
+library(ggthemes)
+library(lubridate)
+library(here)
+library(skimr)
+library(janitor)
+library(httr)
+library(readxl)
+library(vroom)
+library(data.table)
+library(infer)
+library(ggridges)
+library(viridis)
+library(tidyquant)
+library(rvest)    # scrape websites
+library(purrr)  
+library(lubridate) #to handle dates
+library(ggrepel) # to avoid loverlapping legends
+```
+
+```{r, load_stock_data}
+library(fivethirtyeight)
+data(drinks)
+
+
+# or download directly
+# alcohol_direct <- read_csv("https://raw.githubusercontent.com/fivethirtyeight/data/master/alcohol-consumption/drinks.csv")
+
+```
+
+
+```{r, get tickers}
+
+# we need a vector of strings with just the 30 tickers + SPY
+stock_data <- 
+  data.frame(stocks = c("ADS","EON"),
+             announce =c(
+               "2011/10/03",
+               "2011/09/05"),
+             close =c(
+               "2014/10/03",
+               "2012/09/05"))
+
+```
+
+```{r get_price_data, message=FALSE, warning=FALSE, cache=TRUE}
+# Notice the cache=TRUE argument in the chunk options. Because getting data is time consuming, # cache=TRUE means that once it downloads data, the chunk will not run again next time you knit your Rmd
+
+stock_data <- stock_data %>% 
+  select(stocks) %>% 
+  tq_get(get  = "stock.prices",
+         from = "2009-01-01",
+         to   = "2020-08-31") %>%
+  group_by(stocks) %>% 
+  select(stocks, date, close)
+
+glimpse(stock_data) # examine the structure of the resulting data frame
+
+test <- glimpse(stock_data[1])
+```
+
+```{r standardised format}
+datalist = list() 
+
+for (i in test) {
+  
+  df <- 
+    data.frame(date = seq(as.POSIXct(stock_data[1, 2]) - (2 * 24 * 60 * 60),
+                              as.POSIXct(stock_data[1,3]),
+                              by="days")) %>% 
+    mutate(date = as.Date(date,"%Y/%m/%d", tz = "CET")) %>% 
+    mutate(day = as.numeric(as.Date(stock_data[1,2], format = "%Y/%m/%d")),
+           day = as.numeric(date) - day,
+           company = i)
+  
+  datalist[i] <- df}
+
+df <- do.call(cbind, datalist)
+
+glimpse(df)
+
+df <- data.frame(c1 = c(1,2),
+                   c2 = c(3,4)) %>% 
+    mutate(comp = "RWE")
+df2 <- data.frame(c1 = c(1,2),
+                   c2 = c(3,4)) %>% 
+    mutate(comp = "EON")
+
+l12 =list(df,df2)
+
+merge <- do.call(rbind, datalist)
+
+print(merge)
+
+testlist = list()
+
+for (i in test) {
+
+  append(testlist, i)
+
+  }
+
+```
+
+```{r standardised format}
+datalist = list() 
+
+for (i in test) {
+  df <- data.frame(c1 = c(1,2),
+                   c2 = c(3,4)) %>% 
+    mutate(comp = i)
+  
+
+  merge <- rbind(merge,df)
+  }
+
+
+glimpse(merge)
+```
+
+
