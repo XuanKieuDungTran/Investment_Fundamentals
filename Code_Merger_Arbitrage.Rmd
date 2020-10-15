@@ -45,6 +45,7 @@ library(ggrepel) # to avoid loverlapping legends
 library(ggplot2)
 library(broom)
 library(huxtable)
+library(Hmisc)
 ```
 
 ## Benchmark data
@@ -79,7 +80,7 @@ stocks <-
 
 
 stocks2 <- read_excel("MA_test.xlsx", sheet = "Sheet1") %>% 
-  summarise(acquirer, target, acquirer_stocks, target_stocks, announce_date, close_date)
+  summarise(acquirer, target, announce_date, close_date)
 
 ```
 
@@ -159,7 +160,7 @@ df_returns <- df_returns %>%
          R_d_combined = R_d_target - R_d_acquirer) %>% 
   select(-announce_date, -close_date,
          -standard_date,
-         -acquirer_stocks, -target_stocks)
+         )
 
 df_returns <- df_returns[,c("date",
                             "period",
@@ -176,27 +177,32 @@ df_standard_returns <- df_returns %>%
   group_by(period) %>% 
   # Get average returns across deals
   summarise(return_acquirer = mean(R_d_acquirer),
-            return_target = mean(-R_d_target),
+            return_target = mean(R_d_target),
             return_combined = mean(R_d_combined),
             # set up cumulative return field
             cum_return_acquirer = 1,
             cum_return_target = 1,
             cum_return_combined = 1) %>% 
   # calculate cumulative return per day
-  mutate(cum_return_acquirer = ifelse(is.na(lag(cum_return_acquirer)),1,lag(cum_return_acquirer)) * (1+return_acquirer),
-         cum_return_target = ifelse(is.na(lag(cum_return_target)),1,lag(cum_return_target)) * (1+return_target),
-         cum_return_combined = ifelse(is.na(lag(cum_return_combined)),1,lag(cum_return_combined)) * (1+return_combined))
+  mutate(return_acquirer = ifelse(is.na(return_acquirer),0,return_acquirer),
+         return_target = ifelse(is.na(return_target),0,return_target),
+         return_combined = ifelse(is.na(return_combined),0,return_combined)) %>% 
+  mutate(cum_return_acquirer = cumprod(1+return_acquirer),
+         cum_return_target = cumprod(1+return_target),
+         cum_return_combined = cumprod(1+return_combined))
 
 # Create Time-series 
 df_ts_returns <- left_join(tbill, df_returns, by ="date") %>% 
   # calculate average returns for all strategies by date
   group_by(date) %>% 
   summarise(T_bill_d = mean(T_bill_d),
-            R_d_acquirer = mean(ifelse(period >= 0, R_d_acquirer,NA)),
-            R_d_target = mean(ifelse(period >= 0, R_d_target,NA)),
-            R_d_combined = mean(ifelse(period >= 0, R_d_combined,NA))) %>% 
+            R_d_acquirer = mean(ifelse(period > 0, R_d_acquirer,NA)),
+            R_d_target = mean(ifelse(period > 0, R_d_target,NA)),
+            R_d_combined = mean(ifelse(period > 0, R_d_combined,NA))) %>% 
   # create merger arbitrage strategy which moves into risk free bonds if no current deal
   mutate(R_d_strategy = ifelse(is.na(R_d_combined), T_bill_d, R_d_combined))
+
+
 
 
 
@@ -212,12 +218,13 @@ gm_mean = function(x, na.rm=TRUE){
 # Analysis
 
 
+
 Index
 
 ```{r}
 benchmark <- 
   data.frame(index = c("MNA", "^RUA", "^FTSE","^FTAS", "^IXIC","NYA", "^DJI", "^GSPC"),
-             description = c("IQ Merger Arbitrage ETF", "Russell_3000", "FTSE 100", "FTSE All Share","NASDAQ_Composite", "NYSE Composite", "Dow Jones Industrial Average", "SP_500")) %>% 
+             description = c("IQ_Merger_Arbitrage_ETF", "Russell_3000", "FTSE 100", "FTSE All Share","NASDAQ_Composite", "NYSE Composite", "Dow Jones Industrial Average", "SP_500")) %>% 
   tq_get(get  = "stock.prices",
          from = "2009-01-01",
          to   = "2020-08-31") %>%
@@ -253,6 +260,26 @@ huxreg(CAPM_regression,
 
 
 ```
+
+```{r}
+df_ts_cum_return <- CAPM %>% 
+  filter(date > "2010-01-01") %>% 
+  mutate(cum_return_riskfree = 1,
+         cum_return_market = 1,
+         cum_return_strategy = 1) %>%
+  mutate(cum_return_riskfree = cumprod(1+T_bill_d),
+         cum_return_market = cumprod(1+SP_500),
+         cum_return_strategy = cumprod(1+R_d_strategy))
+
+
+
+ggplot(df_ts_cum_return) +
+  geom_line(aes(x = date, y = cum_return_market), colour = "red") +
+  geom_line(aes(x = date, y = cum_return_riskfree), colour = "blue") +
+  geom_line(aes(x = date, y = cum_return_strategy), colour = "green") 
+  
+```
+
 # To Dos
 ## Get standard dates into proper series. - Dung
 ## Add portfolio set-up and portfolio close price - Leif
