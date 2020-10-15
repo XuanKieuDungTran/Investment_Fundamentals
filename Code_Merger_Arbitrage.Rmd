@@ -42,9 +42,25 @@ library(rvest)    # scrape websites
 library(purrr)  
 library(lubridate) #to handle dates
 library(ggrepel) # to avoid loverlapping legends
+library(ggplot2)
+library(broom)
+library(huxtable)
 ```
 
+## Benchmark data
 
+Risk-free Rates
+
+```{r}
+tbill <- vroom("https://fred.stlouisfed.org/graph/fredgraph.csv?bgcolor=%23e1e9f0&chart_type=line&drp=0&fo=open%20sans&graph_bgcolor=%23ffffff&height=450&mode=fred&recession_bars=on&txtcolor=%23444444&ts=12&tts=12&width=1168&nt=0&thu=0&trc=0&show_legend=yes&show_axis_titles=yes&show_tooltip=yes&id=DTB3&scale=left&cosd=2009-08-01&coed=2020-10-09&line_color=%234572a7&link_values=false&line_style=solid&mark_type=none&mw=3&lw=2&ost=-99999&oet=99999&mma=0&fml=a&fq=Daily&fam=avg&fgst=lin&fgsnd=2020-02-01&line_index=1&transformation=lin&vintage_date=2020-10-14&revision_date=2020-10-14&nd=1954-01-04") %>%
+  mutate(DTB3 = DTB3/100) %>%
+  rename("date" = "DATE",
+         "T_bill" = "DTB3") %>% 
+  mutate(T_bill_d = (1 + T_bill)^(1/252)-1,
+         date = as.Date(date,"%Y-%m-%d"))
+```
+
+Merger Deals
 
 ```{r, get tickers}
 
@@ -55,13 +71,15 @@ stocks <-
              acquirer_stocks = c(-1, -2),
              target_stocks = c(5, 6),
              announce_date =c(
-               "2011-10-06",
+               "2011-08-06",
                "2011-09-07"),
              close_date =c(
-               "2014-10-03",
+               "2011-09-08",
                "2012-09-05"))
 
 ```
+
+## Get Stock Data and build Dataframes
 
 ```{r get_price_data, message=FALSE, warning=FALSE, cache=TRUE}
 # Notice the cache=TRUE argument in the chunk options. Because getting data is time consuming, # cache=TRUE means that once it downloads data, the chunk will not run again next time you knit your Rmd
@@ -92,8 +110,6 @@ stock_data_returns_acquirer <- stocks %>%
                  col_rename = "R_d_acquirer")
 
 df_acquirer <- left_join(stock_data_acquirer_target,stock_data_returns_acquirer , by=c("acquirer","date"))
-
-glimpse(df_acquirer)
 
 stock_data_target <- stocks %>% 
   select(target) %>% 
@@ -129,45 +145,109 @@ df_returns <- df_returns %>%
   filter(standard_date >= -2,
          date <= close_date)
 
-
+df_returns <- df_returns %>% 
+  mutate(close_acquirer = parse_number(close_acquirer),
+         close_target = parse_number(close_target)) %>% 
+  group_by(acquirer) %>% 
+  mutate(period = row_number(),
+         period = period + as.numeric(time_length( min(standard_date), "days")) -1,
+         R_d_combined = R_d_target - R_d_acquirer) %>% 
+  select(-announce_date, -close_date,
+         -standard_date,
+         -acquirer_stocks, -target_stocks)
 
 df_returns <- df_returns[,c("date",
-                            "standard_date",
-                            "announce_date",
-                            "close_date",
+                            "period",
                             "acquirer",
                             "target",
                             "close_acquirer",
                             "close_target",
                             "R_d_acquirer",
-                            "R_d_target")]
+                            "R_d_target",
+                            "R_d_combined")]
 
-df_returns_portfolio <- left_join(df_returns, stocks , by=c("acquirer","target"))  %>% 
-  select(-announce_date.y, -close_date.y) %>% 
-  mutate(close_acquirer = parse_number(close_acquirer),
-         close_target = parse_number(close_target),
-         portfolio_value = (acquirer_stocks * close_acquirer) + (target_stocks * close_target)) %>% 
-  group_by(acquirer) %>% 
-  mutate(R_d_portfolio =  portfolio_value/lag(portfolio_value) - 1)
+
+df_standard_returns <- df_returns %>% 
+  group_by(period) %>% 
+  # Get average returns across deals
+  summarise(return_acquirer = mean(R_d_acquirer),
+            return_target = mean(-R_d_target),
+            return_combined = mean(R_d_combined),
+            # set up cumulative return field
+            cum_return_acquirer = 1,
+            cum_return_target = 1,
+            cum_return_combined = 1) %>% 
+  # calculate cumulative return per day
+  mutate(cum_return_acquirer = ifelse(is.na(lag(cum_return_acquirer)),1,lag(cum_return_acquirer)) * (1+return_acquirer),
+         cum_return_target = ifelse(is.na(lag(cum_return_target)),1,lag(cum_return_target)) * (1+return_target),
+         cum_return_combined = ifelse(is.na(lag(cum_return_combined)),1,lag(cum_return_combined)) * (1+return_combined))
+
+# Create Time-series 
+df_ts_returns <- left_join(tbill, df_returns, by ="date") %>% 
+  # calculate average returns for all strategies by date
+  group_by(date) %>% 
+  summarise(T_bill_d = mean(T_bill_d),
+            R_d_acquirer = mean(ifelse(period >= 0, R_d_acquirer,NA)),
+            R_d_target = mean(ifelse(period >= 0, R_d_target,NA)),
+            R_d_combined = mean(ifelse(period >= 0, R_d_combined,NA))) %>% 
+  # create merger arbitrage strategy which moves into risk free bonds if no current deal
+  mutate(R_d_strategy = ifelse(is.na(R_d_combined), T_bill_d, R_d_combined))
+
+
+
 
 # reformat geometric formula to exponential formula https://en.wikipedia.org/wiki/Geometric_mean#:~:text=2%2C%20that%20is%2C-,.,a%20financial%20investment%20over%20time.
 gm_mean = function(x, na.rm=TRUE){
   exp(sum(log(1+x)) / length(x)) -1}
 
-# df_summary <- df_returns %>% 
-#   group_by(acquirer) %>% 
-#   summarise(total_cagr_acquirer = gm_mean(R_d_acquirer),
-#             total_cagr_target = gm_mean(R_d_target))
+```
 
 
-df_standard_daily_returns <- df_returns_portfolio %>% 
-  group_by(standard_date) %>% 
-  summarise(return_acquirer = gm_mean(R_d_acquirer),
-            return_target = gm_mean(R_d_target),
-            return_portfolio = gm_mean(R_d_portfolio))
 
-glimpse(df_returns) # examine the structure of the resulting data frame
+# Analysis
 
+
+Index
+
+```{r}
+benchmark <- 
+  data.frame(index = c("MNA", "^RUA", "^FTSE","^FTAS", "^IXIC","NYA", "^DJI", "^GSPC"),
+             description = c("IQ Merger Arbitrage ETF", "Russell_3000", "FTSE 100", "FTSE All Share","NASDAQ_Composite", "NYSE Composite", "Dow Jones Industrial Average", "SP_500")) %>% 
+  tq_get(get  = "stock.prices",
+         from = "2009-01-01",
+         to   = "2020-08-31") %>%
+  select(index, description, date, close) %>%
+  mutate(index_return = close/lag(close) - 1)
+```
+
+## CAPM
+```{r}
+CAPM <- df_ts_returns %>%
+  left_join(benchmark, by = "date") %>%
+  select(date, R_d_acquirer, R_d_target,R_d_combined, R_d_strategy,T_bill_d, description, index_return) %>%
+  filter(description == "Russell_3000") %>%
+  pivot_wider(values_from = index_return, names_from = description) %>%
+  mutate(Rm_Rf = Russell_3000 - T_bill_d,
+         Rs_Rf = R_d_strategy - T_bill_d)
+
+ggplot(CAPM, aes(x = Rm_Rf, y = Rs_Rf)) +
+  geom_point() 
+
+CAPM_regression <- lm(Rs_Rf ~ Rm_Rf, data = CAPM)
+
+CAPM_regression
+
+huxreg(CAPM_regression,
+       statistics = c('#observations' = 'nobs', 
+                      'R squared' = 'r.squared', 
+                      'Adj. R Squared' = 'adj.r.squared', 
+                      'Residual SE' = 'sigma'), 
+       bold_signif = 0.05, 
+       stars = NULL
+)
+
+
+```
 # To Dos
 ## Get standard dates into proper series. - Dung
 ## Add portfolio set-up and portfolio close price - Leif
@@ -175,36 +255,3 @@ glimpse(df_returns) # examine the structure of the resulting data frame
 ## calculate daily returns across deals with gm_function - Leif
 ## plot results - Dung
 ## measure performance. Regression with Market index -> calculate Alpha and Beta - Dung
-
-
-
-```
-
-```{r plot returns}
-
-df_returns %>% 
-  ggplot() +
-  geom_line(aes(x = standard_date, y = close_acquirer, group = acquirer, colour = acquirer))
-
-```
-
-
-
-
-```{r standardised format}
-datalist = list() 
-
-for (i in test) {
-  df <- data.frame(c1 = c(1,2),
-                   c2 = c(3,4)) %>% 
-    mutate(comp = i)
-  
-
-  merge <- rbind(merge,df)
-  }
-
-
-glimpse(merge)
-```
-
-
