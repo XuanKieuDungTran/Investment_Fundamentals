@@ -46,6 +46,9 @@ library(ggplot2)
 library(broom)
 library(huxtable)
 library(Hmisc)
+library(googlesheets4) # load google sheets
+library(psych) # proper geometric mean :D if needed
+library(quantmod)
 ```
 
 ## Benchmark data
@@ -78,6 +81,8 @@ stocks <-
                "2011-09-08",
                "2012-09-05"))
 
+# Alternative: 
+# stocks2 <- read_sheet("https://docs.google.com/spreadsheets/d/1-IxOKy5UK85RDXVNfi7hHH16PN9bKbeodu7bToxwhss/edit?usp=sharing", sheet = "Sheet1") %>% 
 
 stocks2 <- read_excel("MA_test.xlsx", sheet = "Sheet1") %>% 
   summarise(acquirer, target, announce_date, close_date)
@@ -137,7 +142,9 @@ stock_data_returns_target <- stocks2 %>%
                  mutate_fun = periodReturn, 
                  period     = "daily", 
                  col_rename = "R_d_target")
+```
 
+```{r}
 df_target <- left_join(stock_data_target,stock_data_returns_target , by=c("target","date"))
 
 df_returns <- left_join(df_acquirer,df_target , by=c("date","target")) 
@@ -171,8 +178,9 @@ df_returns <- df_returns[,c("date",
                             "R_d_acquirer",
                             "R_d_target",
                             "R_d_combined")]
+```
 
-
+```{r}
 df_standard_returns <- df_returns %>% 
   group_by(period) %>% 
   # Get average returns across deals
