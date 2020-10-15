@@ -77,6 +77,10 @@ stocks <-
                "2011-09-08",
                "2012-09-05"))
 
+
+stocks2 <- read_excel("MA_test.xlsx", sheet = "Sheet1") %>% 
+  summarise(acquirer, target, acquirer_stocks, target_stocks, announce_date, close_date)
+
 ```
 
 ## Get Stock Data and build Dataframes
@@ -84,7 +88,7 @@ stocks <-
 ```{r get_price_data, message=FALSE, warning=FALSE, cache=TRUE}
 # Notice the cache=TRUE argument in the chunk options. Because getting data is time consuming, # cache=TRUE means that once it downloads data, the chunk will not run again next time you knit your Rmd
 
-stock_data_acquirer <- stocks %>% 
+stock_data_acquirer <- stocks2 %>% 
   select(acquirer) %>% 
   tq_get(get  = "stock.prices",
          from = "2009-01-01",
@@ -93,10 +97,10 @@ stock_data_acquirer <- stocks %>%
   select(acquirer, date, close) %>% 
   mutate(close_acquirer = sprintf("%.2f",close))
 
-stock_data_acquirer_target <- left_join(stock_data_acquirer,stocks , by=c("acquirer"))
+stock_data_acquirer_target <- left_join(stock_data_acquirer,stocks2 , by=c("acquirer"))
 
 
-stock_data_returns_acquirer <- stocks %>% 
+stock_data_returns_acquirer <- stocks2 %>% 
   select(acquirer) %>% 
   tq_get(get  = "stock.prices",
          from = "2009-01-01",
@@ -111,7 +115,7 @@ stock_data_returns_acquirer <- stocks %>%
 
 df_acquirer <- left_join(stock_data_acquirer_target,stock_data_returns_acquirer , by=c("acquirer","date"))
 
-stock_data_target <- stocks %>% 
+stock_data_target <- stocks2 %>% 
   select(target) %>% 
   tq_get(get  = "stock.prices",
          from = "2009-01-01",
@@ -120,7 +124,7 @@ stock_data_target <- stocks %>%
   select(target, date, close) %>% 
   mutate(close_target = sprintf("%.2f",close))
 
-stock_data_returns_target <- stocks %>% 
+stock_data_returns_target <- stocks2 %>% 
   select(target) %>% 
   tq_get(get  = "stock.prices",
          from = "2009-01-01",
@@ -138,12 +142,13 @@ df_target <- left_join(stock_data_target,stock_data_returns_target , by=c("targe
 df_returns <- left_join(df_acquirer,df_target , by=c("date","target")) 
 
 df_returns <- df_returns %>% 
-    mutate(announce_date = as.Date(announce_date,"%Y-%m-%d"),
-           close_date = as.Date(close_date,"%Y-%m-%d"),
-           standard_date = date - announce_date) %>% 
+  mutate(announce_date = as.Date(announce_date,"%Y-%m-%d"),
+         close_date = as.Date(close_date,"%Y-%m-%d"),
+         standard_date = date - announce_date) %>% 
   group_by(acquirer) %>% 
   filter(standard_date >= -2,
-         date <= close_date)
+         date <= close_date,
+         !is.na(close_target))
 
 df_returns <- df_returns %>% 
   mutate(close_acquirer = parse_number(close_acquirer),
@@ -225,9 +230,9 @@ benchmark <-
 CAPM <- df_ts_returns %>%
   left_join(benchmark, by = "date") %>%
   select(date, R_d_acquirer, R_d_target,R_d_combined, R_d_strategy,T_bill_d, description, index_return) %>%
-  filter(description == "Russell_3000") %>%
+  filter(description == "SP_500") %>%
   pivot_wider(values_from = index_return, names_from = description) %>%
-  mutate(Rm_Rf = Russell_3000 - T_bill_d,
+  mutate(Rm_Rf = SP_500 - T_bill_d,
          Rs_Rf = R_d_strategy - T_bill_d)
 
 ggplot(CAPM, aes(x = Rm_Rf, y = Rs_Rf)) +
